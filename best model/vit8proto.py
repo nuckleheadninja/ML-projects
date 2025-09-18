@@ -13,9 +13,6 @@ from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import classification_report
 import random
 
-# ------------------------------
-# CONFIG
-# ------------------------------
 TRAIN_DIR = r"C:\Users\User\indian_bovine_split\train"
 VAL_DIR   = r"C:\Users\User\indian_bovine_split\val"
 
@@ -29,11 +26,8 @@ DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_SAVE    = "vit_small_bovine_best_stage3.pth"
 IMG_SIZE      = 224
 NUM_CLASSES   = 41
-MIXUP_ALPHA   = 0.4  # for stage2+3
-
-# ------------------------------
-# Data Transforms
-# ------------------------------
+MIXUP_ALPHA   = 0.4  #used for stage 2&3 tuning 
+#data transforming
 train_transform = transforms.Compose([
     transforms.RandomResizedCrop(IMG_SIZE, scale=(0.8,1.0)),
     transforms.RandomHorizontalFlip(),
@@ -50,16 +44,11 @@ val_transform = transforms.Compose([
     transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
 ])
 
-# ------------------------------
-# Build ViT Model
-# ------------------------------
+#building the vit 
 def build_model(num_classes):
     model = timm.create_model('vit_small_patch16_224', pretrained=True, num_classes=num_classes)
     return model
 
-# ------------------------------
-# Focal Loss
-# ------------------------------
 class FocalLoss(nn.Module):
     def __init__(self, alpha=None, gamma=2, reduction='mean'):
         super(FocalLoss, self).__init__()
@@ -75,9 +64,7 @@ class FocalLoss(nn.Module):
         focal_loss = ((1 - pt) ** self.gamma * ce_loss)
         return focal_loss.mean() if self.reduction=='mean' else focal_loss.sum()
 
-# ------------------------------
-# Mixup
-# ------------------------------
+
 def mixup_data(x, y, alpha=MIXUP_ALPHA):
     lam = np.random.beta(alpha, alpha) if alpha > 0 else 1.0
     batch_size = x.size()[0]
@@ -89,9 +76,7 @@ def mixup_data(x, y, alpha=MIXUP_ALPHA):
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
-# ------------------------------
-# Training/Validation Functions
-# ------------------------------
+#trainig validation starts
 
 def train_one_epoch(model, dataloader, criterion, optimizer, scaler, use_mixup=False):
     model.train()
@@ -147,10 +132,7 @@ def validate_one_epoch(model, dataloader, criterion, scaler):
             running_corrects += torch.sum(preds == labels).item()
 
     return running_loss / dataset_size, running_corrects / dataset_size
-
-# ------------------------------
-# Plotting Helper
-# ------------------------------
+#graph plots
 def plot_history(history):
     epochs = range(1, len(history["train_loss"])+1)
     plt.figure(figsize=(12,5))
@@ -167,37 +149,27 @@ def plot_history(history):
 
     plt.tight_layout()
     plt.show()
-
-# ------------------------------
-# Main Training Function
-# ------------------------------
+#main trainig
 def run_training(train_dir, val_dir):
-    # Datasets
     train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
     val_dataset   = datasets.ImageFolder(val_dir, transform=val_transform)
 
-    # Class weights
     targets = [label for _, label in train_dataset.samples]
     classes = np.unique(targets)
     class_weights = compute_class_weight('balanced', classes=classes, y=targets)
     class_weights_tensor = torch.tensor(class_weights, dtype=torch.float).to(DEVICE)
 
-    # Weighted sampler
     sample_weights = [class_weights_tensor[label].item() for label in targets]
     sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
 
-    # DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, sampler=sampler,
                               num_workers=NUM_WORKERS, pin_memory=(DEVICE=='cuda'))
     val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False,
                               num_workers=NUM_WORKERS, pin_memory=(DEVICE=='cuda'))
 
-    # Model
     model = build_model(NUM_CLASSES).to(DEVICE)
 
-    # ------------------------------
-    # Stage 1: Head-only training
-    # ------------------------------
+   #stage 1 tuning training the head only
     for p in model.parameters():
         p.requires_grad = False
     for p in model.head.parameters():
@@ -209,7 +181,7 @@ def run_training(train_dir, val_dir):
 
     history = {"train_loss":[], "train_acc":[], "val_loss":[], "val_acc":[]}
 
-    print("🔒 Stage 1: training classifier head only (no Mixup)")
+    print("stage 1: training classifier head only (no Mixup)")
     for epoch in range(EPOCHS_STAGE1):
         t0 = time.time()
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, use_mixup=False)
@@ -218,9 +190,8 @@ def run_training(train_dir, val_dir):
         history["val_loss"].append(val_loss);     history["val_acc"].append(val_acc)
         print(f"[S1 E{epoch+1}/{EPOCHS_STAGE1}] train_acc={train_acc:.4f} val_acc={val_acc:.4f} ({time.time()-t0:.1f}s)")
 
-    # ------------------------------
-    # Stage 2: Last 8 blocks + head
-    # ------------------------------
+   
+    # Stage2 head+8 last blocks train
     for name, param in model.named_parameters():
         if any(f"blocks.{i}" in name for i in range(4,12)) or "head" in name:
             param.requires_grad = True
@@ -234,7 +205,7 @@ def run_training(train_dir, val_dir):
     best_val_loss = float('inf')
     patience_counter = 0
 
-    print("🔓 Stage 2: fine-tuning last 8 blocks + head (with Mixup)")
+    print("Stage 2: fine-tuning last 8 blocks + head (with Mixup)")
     for epoch in range(EPOCHS_STAGE2):
         t0 = time.time()
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, use_mixup=True)
@@ -249,21 +220,19 @@ def run_training(train_dir, val_dir):
             best_val_loss = val_loss
             best_wts = copy.deepcopy(model.state_dict())
             torch.save(best_wts, MODEL_SAVE)
-            print(f"💾 Saved best model (val_loss={val_loss:.4f})")
+            print(f" Saved best model (val_loss={val_loss:.4f})")
             patience_counter = 0
         else:
             patience_counter += 1
             if patience_counter >= PATIENCE:
-                print("⏹️ Early stopping Stage 2")
+                print("Early stopping Stage 2")
                 break
 
     model.load_state_dict(best_wts)
 
-    # ------------------------------
-    # Stage 3: Full backbone fine-tuning
-    # ------------------------------
+   #stage 3 full model f vit small training
     for p in model.parameters():
-        p.requires_grad = True  # unfreeze all
+        p.requires_grad = True  
 
     optimizer = optim.AdamW(model.parameters(), lr=5e-6, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
@@ -271,7 +240,7 @@ def run_training(train_dir, val_dir):
     best_val_loss = float('inf')
     patience_counter = 0
 
-    print("🔑 Stage 3: full backbone fine-tuning (low LR, Mixup)")
+    print("Stage 3: full backbone fine-tuning (low LR, Mixup)")
     for epoch in range(EPOCHS_STAGE3):
         t0 = time.time()
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, use_mixup=True)
@@ -286,12 +255,12 @@ def run_training(train_dir, val_dir):
             best_val_loss = val_loss
             best_wts = copy.deepcopy(model.state_dict())
             torch.save(best_wts, MODEL_SAVE)
-            print(f"💾 Saved best model Stage 3 (val_loss={val_loss:.4f})")
+            print(f"Saved best model Stage 3 (val_loss={val_loss:.4f})")
             patience_counter = 0
         else:
             patience_counter += 1
             if patience_counter >= PATIENCE:
-                print("⏹️ Early stopping Stage 3")
+                print("Early stopping Stage 3")
                 break
 
     model.load_state_dict(best_wts)
@@ -302,6 +271,7 @@ def run_training(train_dir, val_dir):
 # ------------------------------
 if __name__ == "__main__":
     trained_model, history, classes = run_training(TRAIN_DIR, VAL_DIR)
-    print("✅ Training finished. Best model saved to:", MODEL_SAVE)
+    print("Training finished. Best model saved to:", MODEL_SAVE)
     plot_history(history)
+
         
