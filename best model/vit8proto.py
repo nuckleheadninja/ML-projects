@@ -266,12 +266,10 @@ def run_training(train_dir, val_dir):
     model.load_state_dict(best_wts)
     return model, history, train_dataset.classes
 
-# ------------------------------
-# ENTRY POINT
-# ------------------------------
 if __name__ == "__main__":
     trained_model, history, classes = run_training(TRAIN_DIR, VAL_DIR)
     print("Training finished. Best model saved to:", MODEL_SAVE)
     plot_history(history)
 
         
+
