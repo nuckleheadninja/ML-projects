@@ -6,9 +6,6 @@ from torchvision import transforms
 from PIL import Image
 import torch.nn.functional as F
 
-# ------------------------------
-# BREED FEATURES DICTIONARY (Provided by you)
-# ------------------------------
 breed_features = {
     "Gir": { "type": "Cattle", "avg_weight_kg": {"male": 545, "female": 385}, "avg_height_cm": {"male": 135, "female": 130}, "milk_yield_lactation_l": 2110, "lifespan_years": 12, "climate": "Hot and dry regions", "best_state": "Gujarat" },
     "Murrah": { "type": "Buffalo", "avg_weight_kg": {"male": 550, "female": 450}, "avg_height_cm": {"male": 142, "female": 132}, "milk_yield_lactation_l": 1800, "lifespan_years": 12, "climate": "All climates, heat-tolerant", "best_state": "Haryana, Punjab" },
@@ -53,9 +50,6 @@ breed_features = {
     "Vechur": { "type": "Cattle", "avg_weight_kg": {"male": 150, "female": 120}, "avg_height_cm": {"male": 95, "female": 90}, "milk_yield_lactation_l": 560, "lifespan_years": 10, "climate": "Hot, humid, coastal", "best_state": "Kerala" }
 }
 
-# ------------------------------
-# CONFIGURATION
-# ------------------------------
 MODEL_SAVE_PATH = r"D:\Python basics\AI project\vit_small_bovine_best_stage3.pth"
 NUM_CLASSES = 41
 IMG_SIZE = 224
@@ -70,9 +64,6 @@ CLASS_NAMES = [
     'Sahiwal', 'Surti', 'Tharparkar', 'Toda', 'Umblachery', 'Vechur'
 ]
 
-# ------------------------------
-# MODEL LOADING
-# ------------------------------
 def build_model(num_classes):
     model = timm.create_model('vit_small_patch16_224', pretrained=False, num_classes=num_classes)
     return model
@@ -87,18 +78,12 @@ def load_trained_model(model_path, num_classes):
 
 model = load_trained_model(MODEL_SAVE_PATH, NUM_CLASSES)
 
-# ------------------------------
-# IMAGE TRANSFORMATION
-# ------------------------------
 val_transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-# ------------------------------
-# PREDICTION & FEATURE FUNCTIONS
-# ------------------------------
 def predict(input_image: Image.Image):
     if input_image is None:
         return None, None
@@ -118,7 +103,7 @@ def predict(input_image: Image.Image):
         class_name = CLASS_NAMES[class_index]
         top3_preds[class_name] = f"{prob:.4f}"
         
-    # Return predictions and also hide the features button initially
+  
     return top3_preds, gr.update(visible=True)
 
 def get_features(predictions: dict):
@@ -128,23 +113,18 @@ def get_features(predictions: dict):
     if not predictions:
         return "No prediction available to show features."
         
-    # Get the top breed (first key in the prediction dictionary)
     top_breed_name = list(predictions.keys())[0]
     
-    # Retrieve the features for that breed
     features = breed_features.get(top_breed_name)
     
     if not features:
         return f"No feature data available for {top_breed_name}."
         
-    # Format the features into a nice Markdown string
     md_string = f"### Features for {top_breed_name}\n"
     md_string += "---\n"
     for key, value in features.items():
-        # Clean up the key for display (e.g., 'avg_weight_kg' -> 'Avg Weight (kg)')
         display_key = key.replace('_', ' ').replace('kg', '(kg)').replace('cm', '(cm)').replace('l', '(L)').title()
         
-        # Handle nested dictionaries for weight/height
         if isinstance(value, dict):
             display_value = ', '.join([f"{k.title()}: {v}" for k,v in value.items()])
         else:
@@ -154,9 +134,6 @@ def get_features(predictions: dict):
         
     return md_string
 
-# ------------------------------
-# GRADIO INTERFACE
-# ------------------------------
 if __name__ == "__main__":
     with gr.Blocks(theme=gr.themes.Soft()) as iface:
         gr.Markdown("# 🐄 Indian Bovine Breed Classifier")
@@ -185,7 +162,6 @@ if __name__ == "__main__":
                                 - Pawan
         """)
         
-        # Define the interactions
         predict_btn.click(
             fn=predict,
             inputs=image_input,
@@ -198,5 +174,5 @@ if __name__ == "__main__":
             outputs=feature_output
         )
 
-    # Launch the GUI
+
     iface.launch()
